@@ -8,10 +8,6 @@ This is the codebase for the paper: "Less is More: Recursive Reasoning with Tiny
 
 Tiny Recursion Model (TRM) recursively improves its predicted answer y with a tiny network. It starts with the embedded input question x and initial embedded answer y and latent z. For up to K improvements steps, it tries to improve its answer y. It does so by i) recursively updating n times its latent z given the question x, current answer y, and current latent z (recursive reasoning), and then ii) updating its answer y given the current answer y and current latent z. This recursive process allows the model to progressively improve its answer (potentially addressing any errors from its previous answer) in an extremely parameter-efficient manner while minimizing overfitting.
 
-<p align="center">
-<img src="{{ site.baseurl }}/assets/images/TRM_fig.png" alt="TRM-Figure" style="width:50%">
-</p>
-
 ### Requirements
 
 - Python 3.10 (or similar)
@@ -119,14 +115,14 @@ arch.H_cycles=3 arch.L_cycles=4 \
 If you find our work useful, please consider citing:
 
 ```bibtex
-@misc{jolicoeurmartineau2025tinyrecursionmodel,
+@misc{jolicoeurmartineau2025morerecursivereasoningtiny,
       title={Less is More: Recursive Reasoning with Tiny Networks}, 
       author={Alexia Jolicoeur-Martineau},
       year={2025},
-      eprint={xxxxxxx},
+      eprint={2510.04871},
       archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      url={https://arxiv.org/abs/xxxxxxxxx}, 
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2510.04871}, 
 }
 ```
 
