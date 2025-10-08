@@ -59,13 +59,28 @@ python dataset/build_maze_dataset.py # 1000 examples, 8 augments
 
 ## Experiments
 
-### ARC-AGI (assuming 4 H-100 GPUs):
+### ARC-AGI-1 (assuming 4 H-100 GPUs):
 
 ```bash
-run_name="pretrain_att_arc12concept_4"
+run_name="pretrain_att_arc1concept_4"
 torchrun --nproc-per-node 4 --rdzv_backend=c10d --rdzv_endpoint=localhost:0 --nnodes=1 pretrain.py \
 arch=trm \
-data_paths="[data/arc12concept-aug-1000]" \
+data_paths="[data/arc1concept-aug-1000]" \
+arch.L_layers=2 \
+arch.H_cycles=3 arch.L_cycles=4 \
++run_name=${run_name} ema=True
+
+```
+
+*Runtime:* ~3 days
+
+### ARC-AGI-2 (assuming 4 H-100 GPUs):
+
+```bash
+run_name="pretrain_att_arc2concept_4"
+torchrun --nproc-per-node 4 --rdzv_backend=c10d --rdzv_endpoint=localhost:0 --nnodes=1 pretrain.py \
+arch=trm \
+data_paths="[data/arc2concept-aug-1000]" \
 arch.L_layers=2 \
 arch.H_cycles=3 arch.L_cycles=4 \
 +run_name=${run_name} ema=True
