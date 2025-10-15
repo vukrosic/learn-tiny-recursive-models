@@ -52,13 +52,16 @@ To let the model understand what numbers like `4` and `1` mean, we will asign a 
 
 These vectors will represent the meaning of a "wall" or "end point".
 
+I recommend you remind yourself what vector embeddings (in LLMs, of words, tokens, etc) are by searching it on YouTube or talking to an AI chatbot.
+
 *   An **Embedding Layer** is like a dictionary.
-*   **Input:** A token (e.g., the number `1` for "wall").
-*   **Output:** A long list of numbers called a **vector**. This vector represents the *meaning* of "wall" in a way the network can understand. The network itself choose (learned) numbers within this vector during the training so it can understand it.
+*   It contains vector embeddings for each of our numbers.
+*   `1`: `[0.3, -1.2, 0.7, 0.0, 1.5, -0.4, 0.9, 2.3]`  ←  Example vector embedding for "wall"
+*   **Output:** A long list of numbers called a **vector**. This vector represents the *meaning* of "wall" in a way the network can understand. The network itself choose (learned) numbers within this vector during the training so it can "understand" it.
 
-After this step, our input maze is no longer a list of simple numbers. It's a list of vectors, where each vector is a rich description of what's in that spot. For our 3x3 example, if we use a vector of size 8 for each token, our input becomes:
+After this step, our input maze is no longer a list of simple numbers. It's a list of vectors. For our 3x3 maze, if we use a vector of size 8 for each token, our input becomes:
 
-*   `x_embedded`: A `9x8` matrix of vectors representing the maze.
+*   `x`: A `9x8` matrix of vectors representing the maze.
 
 This rich representation is what we feed to the main model.
 
@@ -66,12 +69,17 @@ This rich representation is what we feed to the main model.
 
 ### Step 2: The Core Architecture: The TRM Brain
 
-The "brain" of TRM is a tiny 2-layer neural network called `net`. It processes information to produce an output. To "think," TRM uses two forms of memory:
+The "brain" of TRM is a tiny 2-layer transformer called `net`. It processes information to produce an output. To "think," TRM uses two variables, both having same shape as `x`:
 
-*   `y`: The model's current **best guess** for the solution. This is the "clean answer sheet."
-*   `z`: A **scratchpad** for reasoning, also called **latent thought**. This is for the "messy thinking process," where the model explores paths, notes dead ends, and tracks possibilities without committing to a final answer.
+*   `y`: The model's current **best guess** for the solution. Might be wrong"
+*    ```
+    [[2, 4, 1],
+     [1, 4, 1],
+     [1, 0, 3]]
+    ```
+*   `z`: A **latent thought**. `z` tells what needs to be changed in `y` to turn it into a correct solution. `z` is passed through the transformer multiple times to let the model refine what needs to be changed in `y`, this is how the model reasons or thinks. Then the change is applied to `y`.
 
-Both `y` and `z` are grids of vectors, the same shape as the input maze. `z` acts like a transparent overlay on the maze, where the model jots down detailed notes on each square. The process is about iteratively improving `y` and `z` from a blank state. For our 3x3 example, they start as `9x8` matrices of zeros.
+For our 3x3 example, `z` and `y` start as `9x8` matrices of zeros.
 
 ---
 
