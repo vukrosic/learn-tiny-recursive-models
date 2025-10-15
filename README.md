@@ -2,9 +2,9 @@ This repository contains the code for the Tiny Reasoning Model (TRM), a 7M param
 
 I spent whole day making a video that explains it step by step:
 
-- **YouTube:** [Watch the video](https://youtu.be/51uVH-sEvk0)
-- **Blog Post:** [Read the full article](https://opensuperintelligencelab.com/blog/tiny-recursive-model/)
-- **ArXiv Paper:** [Read the paper](https://arxiv.org/pdf/2510.04871v1)
+- 📹 **YouTube:** [Watch the video](https://youtu.be/51uVH-sEvk0)
+- 📝 **Blog Post:** [Read the full article](https://opensuperintelligencelab.com/blog/tiny-recursive-model/)
+- 📜 **ArXiv Paper:** [Read the paper](https://arxiv.org/pdf/2510.04871v1)
 
 ---
 
