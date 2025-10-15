@@ -142,16 +142,16 @@ After each middle loop itteration this outter loop updates weights once (remembe
 
 Then in the next iteration it repeats the middle loop with the updated weights, allowing the model to progressively improve its solution with each attempt.
 
-### Summary of the Flow
+#### Knowing when to stop thinking (The Q head)
 
-1.  **Data:** Maze picture -> Grid of numbers (**Tokens**).
-2.  **Embedding:** Tokens -> Rich descriptive **vectors** (`x`).
-3.  **Core Thought (`latent_recursion`):** The `net` thinks for 6 steps by updating its scratchpad (`z`) based on the maze (`x`) and its current guess (`y`). It then uses the final thought to produce an improved guess (`y`).
-4.  **Full Thought Process (`deep_recursion`):** The model "warms up" its thinking for 2 cycles, then executes a final, trackable thought process for 1 cycle.
-5.  **Practice (`Deep Supervision`):** The model gets multiple chances (up to 16) to solve the same maze, learning from its mistakes on each attempt and starting the next one with smarter memories.
-6.  **Learning:** After a full thought process, the model compares its final answer to the correct one and uses **backpropagation** to adjust its `net`.
+The outer loop can run up to 16 times, but it doesn't have to. It would be a waste of time to keep thinking about a maze it has already solved.
 
-By repeating this entire nested process for thousands of different mazes, the tiny 2-layer `net` becomes surprisingly good at solving them, even though it was never told the rules. It learned the patterns of what a "path" looks like from start to finish.
+So, the model has a little side-brain called a "Q head". After each full thought process (each middle loop), this Q head spits out a score. This score is basically the model's confidence: "How sure am I that I got this right?"
+
+If the confidence score is high enough, the outer loop just stops (`break`), and the model moves on to the next maze.
+
+It learns to get this confidence score right because it's part of the training. It gets rewarded if it's confident *and* correct, and penalized if it's confident but wrong. The paper calls this Adaptive Computation Time (ACT).
+
 
 ---
 
