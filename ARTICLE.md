@@ -183,3 +183,225 @@ To understand what makes TRM effective, we can perform **ablation studies**. Thi
     *   **Expected Outcome:** Performance gets worse. This supports the "less is more" hypothesis. A bigger network has more power to just memorize the training mazes. A smaller network, forced to think for longer (more recursion), is more likely to learn the general *strategy* of solving a maze, which allows it to perform better on unseen problems.
 
 These experiments help confirm that the key ingredients to TRM's success are its deep, nested recursion with a tiny network and stabilized training.
+
+---
+
+### Step 5: How the Ablations are Coded — Implementation Details
+
+To truly understand how TRM works, let's look at how each ablation experiment differs in code from the baseline. This will show you exactly what changes when we "turn off" or modify different components.
+
+#### Baseline TRM Implementation
+
+First, let's understand the baseline code structure. The baseline TRM has these key components in the code:
+
+**1. The Network Architecture:**
+```python
+net = TransformerNetwork(
+    num_layers=2,           # Tiny: only 2 layers
+    hidden_size=512,        # Vector size
+    use_attention=False     # Uses MLP instead of self-attention for small grids
+)
+```
+
+**2. The Deep Recursion Loop (`T=3`):**
+```python
+def deep_recursion(x, y, z, n=6, T=3):
+    # Warm-up rounds (T-1 = 2 times) - no gradients tracked
+    with torch.no_grad():
+        for round in range(T - 1):  # Rounds 1 and 2
+            y, z = latent_recursion(x, y, z, n)
+    
+    # Final round with gradient tracking
+    y, z = latent_recursion(x, y, z, n)  # Round 3
+    
+    return y, z
+```
+
+**3. The Latent Recursion Loop (`n=6`):**
+```python
+def latent_recursion(x, y, z, n=6):
+    # Phase A: Update scratchpad z (n=6 steps)
+    for step in range(n):
+        z = net(x + y + z)  # Input includes x, y, and z
+    
+    # Phase B: Update answer y (1 step)
+    y = net(y + z)  # Input is only y and z (no x)
+    
+    return y, z
+```
+
+**4. The Training Loop with EMA:**
+```python
+# Create two copies of the model
+model = TRM()
+model_ema = TRM()  # Exponential Moving Average copy
+
+for batch in training_data:
+    # ... forward pass and compute loss ...
+    loss.backward()
+    optimizer.step()
+    
+    # Update EMA weights (slow-moving average)
+    for param, ema_param in zip(model.parameters(), model_ema.parameters()):
+        ema_param.data = 0.999 * ema_param.data + 0.001 * param.data
+```
+
+At test time, the `model_ema` (the averaged version) is used instead of `model`.
+
+---
+
+#### Ablation 1: No EMA — How It's Coded
+
+**What changes in the code:**
+
+Simply remove the EMA update loop and use only the main model:
+
+```python
+# Create only one model
+model = TRM()
+# No model_ema!
+
+for batch in training_data:
+    loss.backward()
+    optimizer.step()
+    # No EMA update step
+```
+
+At test time, use `model` directly (not an averaged version).
+
+**What this means:** Without EMA, the model weights jump around more during training. When it encounters a difficult example, it might make a large weight update that helps on that example but hurts on others. EMA smooths this out by keeping a "calm, averaged" version that doesn't overreact to individual examples.
+
+---
+
+#### Ablation 2: Less Recursion (`T=2, n=2`) — How It's Coded
+
+**What changes in the code:**
+
+Change the recursion parameters in `deep_recursion` and `latent_recursion`:
+
+```python
+def deep_recursion(x, y, z, n=2, T=2):  # Changed from n=6, T=3
+    # Warm-up round (T-1 = 1 time) - no gradients tracked
+    with torch.no_grad():
+        for round in range(T - 1):  # Only 1 warm-up round now
+            y, z = latent_recursion(x, y, z, n)
+    
+    # Final round with gradient tracking
+    y, z = latent_recursion(x, y, z, n)
+    
+    return y, z
+
+def latent_recursion(x, y, z, n=2):  # Changed from n=6
+    # Phase A: Update scratchpad z (only 2 steps now)
+    for step in range(n):
+        z = net(x + y + z)
+    
+    # Phase B: Update answer y (1 step)
+    y = net(y + z)
+    
+    return y, z
+```
+
+**What this means:** 
+- **Baseline:** 3 full thought processes × (6 reasoning steps + 1 answer step) = 21 total network evaluations
+- **Ablation:** 2 full thought processes × (2 reasoning steps + 1 answer step) = 6 total network evaluations
+
+The model has much less time to "think" through the problem. For our 3x3 maze example, instead of:
+- Round 1: 6 scratchpad updates → answer update
+- Round 2: 6 scratchpad updates → answer update  
+- Round 3: 6 scratchpad updates → answer update
+
+It now only does:
+- Round 1: 2 scratchpad updates → answer update
+- Round 2: 2 scratchpad updates → answer update
+
+This is like giving a student only 2 attempts at a rough draft instead of 6, and only 2 full attempts instead of 3. The solution won't be as refined.
+
+---
+
+#### Ablation 3: Bigger Brain (`4 layers, n=3`) — How It's Coded
+
+**What changes in the code:**
+
+```python
+# Change the network architecture
+net = TransformerNetwork(
+    num_layers=4,           # Changed from 2 to 4
+    hidden_size=512,
+    use_attention=False
+)
+
+# Adjust recursion to compensate
+def latent_recursion(x, y, z, n=3):  # Changed from n=6
+    for step in range(n):  # Only 3 steps now
+        z = net(x + y + z)
+    y = net(y + z)
+    return y, z
+```
+
+**What this means:**
+- **Baseline:** 2-layer network × 6 reasoning steps = 12 layer passes through the scratchpad
+- **Ablation:** 4-layer network × 3 reasoning steps = 12 layer passes through the scratchpad
+
+The total computation is roughly the same, but it's distributed differently:
+- **Baseline approach:** A simple 2-layer brain that's forced to think iteratively (6 times) to build up complex reasoning
+- **Ablation approach:** A more complex 4-layer brain that thinks fewer times (3 times)
+
+Think of it like this:
+- **Baseline:** A person with basic math skills solving `15 + 27 + 38 + 19 + 42 + 56` by adding one number at a time (6 steps)
+- **Ablation:** A person with a calculator doing `(15+27+38) + (19+42+56)` in fewer steps (3 steps)
+
+The calculator is more powerful per step, but surprisingly, the step-by-step approach generalizes better to new mazes the model has never seen. The bigger brain has more capacity to memorize specific training examples instead of learning general strategies.
+
+---
+
+#### Ablation 4: Using Two Separate Networks (like HRM) — How It's Coded
+
+**What changes in the code:**
+
+Instead of one `net`, create two separate networks:
+
+```python
+# Create two networks
+net_L = TransformerNetwork(num_layers=2, hidden_size=512)  # For scratchpad
+net_H = TransformerNetwork(num_layers=2, hidden_size=512)  # For answer
+
+def latent_recursion(x, y, z, n=6):
+    # Phase A: Update scratchpad using net_L
+    for step in range(n):
+        z = net_L(x + y + z)  # Use net_L for reasoning
+    
+    # Phase B: Update answer using net_H
+    y = net_H(y + z)  # Use net_H for answer
+    
+    return y, z
+```
+
+**What this means:**
+- **Baseline:** One 2-layer network (5M parameters) does both jobs
+- **Ablation:** Two 2-layer networks (10M parameters total) - one specialized for reasoning, one for answers
+
+The idea was that having specialized networks might help, but TRM discovered that the single network approach works better. The network can tell what job to do based on the inputs:
+- When it receives `x + y + z` → "I'm updating the scratchpad"
+- When it receives `y + z` (no `x`) → "I'm updating the final answer"
+
+The input structure itself tells the network which mode it's in, so specialization isn't needed.
+
+---
+
+### Summary: Why These Experiments Matter
+
+By changing one component at a time and measuring performance, we learn:
+
+1. **EMA is crucial** for stability when training on small datasets
+2. **Deep recursion (many thinking steps)** is more important than you might expect  
+3. **Smaller networks forced to recurse more** generalize better than bigger networks that recurse less
+4. **A single network can multitask** effectively when the input structure indicates the task
+
+This systematic testing reveals that TRM's success comes from the combination of:
+- Tiny network (prevents memorization)
+- Deep recursion (enables complex reasoning)  
+- Deep supervision (provides learning signal at each improvement step)
+- Stable training (EMA smooths the learning)
+
+Each piece plays a role, and removing any one of them significantly hurts performance.
