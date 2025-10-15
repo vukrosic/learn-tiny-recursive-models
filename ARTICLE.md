@@ -155,118 +155,70 @@ It learns to get this confidence score right because it's part of the training. 
 
 ---
 
-### Step 4: Testing the Recipe — Why Does This Work? (Ablation Studies)
-
-To understand what makes TRM effective, we can perform **ablation studies**—systematically breaking parts of the model to see what happens. Here's a breakdown of the key components.
-
-1.  **The Baseline Model:** The standard TRM with all its key components:
-    *   **Deep Recursion (`T=3`):** 3 full "thought processes" to iteratively refine the solution.
-    *   **Latent Reasoning (`n=6`):** 6 steps of scratchpad (`z`) updates before updating the answer (`y`).
-    *   **Tiny 2-Layer Network:** Forces reliance on recursion over raw size.
-    *   **Exponential Moving Average (EMA):** A training stabilizer for more robust learning.
-
-2.  **Ablation: No Exponential Moving Average (EMA)**
-    *   **Change:** Turn off the weight averaging stabilizer.
-    *   **Expected Outcome:** Worse performance. Without EMA, training can be erratic and lead to overfitting.
-
-3.  **Ablation: Less Recursion**
-    *   **Change:** Drastically reduce thinking time by setting `T=2` and `n=2`.
-    *   **Expected Outcome:** A major drop in accuracy. The model needs sufficient recursive depth to perform the complex chain of reasoning required for hard problems.
-
-4.  **Ablation: A Bigger Brain vs. Deeper Thought**
-    *   **Change:** Double the network size to 4 layers, but reduce latent reasoning to `n=3` to keep computation similar.
-    *   **Expected Outcome:** Worse performance. A bigger network is more prone to memorizing training data. A smaller network *forced* to think longer (more recursion) learns the general *strategy* better.
-
-These experiments help confirm that TRM's success comes from deep, nested recursion with a tiny network and stabilized training.
-
-#### Experimental Results: Ablation Studies in Practice
-
-To validate these hypotheses, we conducted small-scale experiments comparing four configurations. While the original paper reports results from full training runs (50,000+ epochs), we performed quick 10-epoch experiments to illustrate the concepts and their immediate effects.
+### Step 4: Ablation Studies - What Makes TRM Work?
 
 ![Complete Ablation Study](docs/images/complete_ablation_study.png)
-*Figure: Comparison of LM Loss across four ablation studies over 10 epochs on maze-solving task. Blue solid (Baseline: 2-layer, H=3, L=6, EMA), Red dashed (No EMA: 2-layer, H=3, L=6, no EMA), Green dash-dot (Less Recursion: 2-layer, H=2, L=2, EMA), Magenta dotted (Bigger Brain: 4-layer, H=3, L=3, EMA).*
+*Figure: Training loss comparison across four TRM configurations over 10 epochs on maze-solving (30x30, hard). The baseline (blue solid) uses TRM's standard design: 2-layer network, H=3 (middle loop), L=6 (inner loop), with EMA. Ablations test: removing EMA (red dashed), reducing recursion depth (green dash-dot), and using a bigger 4-layer network (magenta dotted).*
 
-**The Four Configurations:**
+To understand what makes TRM effective, we systematically test variations by removing or changing key components. These **ablation studies** reveal which design choices are essential.
 
-1. **Baseline** (2-layer, H_cycles=3, L_cycles=6, EMA=True): The standard TRM configuration
-2. **No EMA Ablation** (2-layer, H_cycles=3, L_cycles=6, EMA=False): Removes exponential moving average
-3. **Less Recursion Ablation** (2-layer, H_cycles=2, L_cycles=2, EMA=True): Reduces recursive depth by ~66%
-4. **Bigger Brain Ablation** (4-layer, H_cycles=3, L_cycles=3, EMA=True): Doubles network size, reduces L_cycles by 50%
+#### Experimental Setup
 
-**Key Experimental Findings:**
+We test four configurations on a maze-solving task (30x30 hard mazes, 1000 training examples):
 
-| Configuration | Initial Loss | Final Loss | Improvement | Min Loss Achieved |
-|--------------|--------------|------------|-------------|-------------------|
-| Baseline | 1.789 | 1.062 | 40.6% | 1.045 |
-| No EMA | 1.789 | 1.042 | 41.7% | 1.041 |
-| Less Recursion | **2.100** | 1.100 | 47.6% | 1.042 |
-| Bigger Brain (4-layer) | 1.789 | **1.007** | 43.7% | **1.007** |
+| Configuration | Layers | H_cycles | L_cycles | EMA | Effective Depth* |
+|---------------|--------|----------|----------|-----|------------------|
+| **Baseline TRM** | 2 | 3 | 6 | Yes | 42 |
+| **No EMA** | 2 | 3 | 6 | No | 42 |
+| **Less Recursion** | 2 | 2 | 2 | Yes | 12 |
+| **Bigger Brain** | 4 | 3 | 3 | Yes | 48 |
 
-**Critical Insights:**
+*Effective depth = T × (n+1) × layers
 
-1. **The "Bigger Brain" Paradox - Most Important Finding:**
-   - **4-layer network achieved BEST final loss (1.007)** - beating all 2-layer configurations!
-   - Started at same point as baseline (1.789) but learned 5% faster
-   - **BUT** - the paper shows 2-layer wins long-term (50k+ epochs)
-   - **Why?** Short-term: more capacity = faster learning. Long-term: more capacity = overfitting
-   - This validates the paper's core thesis: "less is more" for *generalization*, not immediate training loss
-   - The 2-layer architecture is chosen NOT for speed, but to **force reliance on recursion**
+#### Results
 
-2. **EMA Effect Remains Minimal in Short Training:**
-   - Both baseline and No EMA started identically (1.789) and converged to similar losses (~1.04-1.06)
-   - Only ~2% difference between them
-   - Confirmed: EMA is a long-term stabilizer, not a short-term performance booster
+**Note:** These are 10-epoch experiments—a very small amount of training compared to the paper's 50,000+ epoch runs. Longer training may significantly change the relative performance of these configurations, particularly for generalization (as we see with the "Bigger Brain" results below).
 
-3. **Recursion Depth is Non-Negotiable:**
-   - Less Recursion started at **significantly higher** initial loss (2.100 vs 1.789)
-   - This +17% handicap shows reduced recursion cripples the model from initialization
-   - Even with same 2-layer network, cutting H and L cycles severely degrades capability
-   - Final performance worst among all (1.100) despite highest percentage improvement (47.6%)
-   - **Interpretation:** You cannot compensate for shallow recursion - it's architecturally essential
+| Configuration | Initial Loss | Final Loss | Min Loss | Improvement |
+|---------------|--------------|------------|----------|-------------|
+| Baseline | 1.789 | 1.062 | 1.045 | 40.6% |
+| No EMA | 1.789 | 1.042 | 1.041 | 41.7% |
+| Less Recursion | **2.100** | 1.100 | 1.042 | 47.6% |
+| Bigger Brain (4-layer) | 1.789 | **1.007** | **1.007** | **43.7%** |
 
-4. **Different Learning Dynamics Across Configurations:**
-   - The graph shows four distinct curve shapes
-   - Baseline and No EMA: nearly identical (parallel lines)
-   - Less Recursion: starts very high, drops steeply, plateaus high
-   - Bigger Brain: starts normal, drops fastest and furthest
-   - This reveals that architecture affects both learning *speed* and learning *ceiling*
+#### Key Findings
 
-**Why Initial Loss Matters:**
+**1. The "Bigger Brain" Paradox: Short-Term vs. Long-Term Performance**
 
-The fact that Less Recursion starts at 2.100 (vs 1.789 for baseline) is highly informative:
-- The model makes its first prediction *before any training*, using only initialization
-- With less recursion (H=2, L=2), the model has fewer computation steps to process the input
-- This immediately leads to worse initial predictions, even with identical weight initialization
-- It suggests that **architectural compute capacity** directly affects representational power
+The 4-layer network achieved the **best final loss** (1.007) in our 10-epoch experiments, outperforming the 2-layer baseline by ~5%. This seems to contradict the paper's claim that "less is more."
 
-**The Takeaways:**
+**Why the Difference?**
+- **Short-term** (10 epochs): More capacity = faster learning. The 4-layer network could be memorizing patterns quickly.
+- **Long-term** (50k+ epochs): More capacity = overfitting. The 2-layer network is *forced* to learn reusable reasoning strategies instead of memorizing specific solutions.
+  
+Paper's core thesis: **Small networks forced to think recursively generalize better than large networks**, even if they train slower initially. The 2-layer architecture is chosen specifically to prevent memorization and force reliance on recursion.
 
-1. **The Short-Term vs. Long-Term Trade-off (Most Important):**
-    - **Bigger networks win short-term**: The 4-layer network achieved the best 10-epoch loss (1.007).
-    - **Smaller networks win long-term**: The paper shows the 2-layer network wins at 50k+ epochs because it is forced to learn a general strategy instead of memorizing, which leads to better generalization. This paradox is central to TRM's design.
+**2. Recursion Depth is Fundamental**
 
-2. **Recursion Depth is Absolutely Critical:**
-    - The "Less Recursion" model started with a 17% higher loss and performed worst overall.
-    - This confirms you cannot compromise on recursive depth (`H_cycles` and `L_cycles`); it is fundamental to the architecture's ability to reason.
+The "Less Recursion" configuration (H=2, L=2) shows severely degraded performance:
+- Started at **17% higher initial loss** (2.100 vs 1.789) before any training
+- Achieved worst final loss (1.100) despite improving 47.6%
 
-3. **EMA is a Long-Term Stabilizer:**
-    - The effect of EMA was minimal in short training runs (~2% difference). Its real value is in preventing overfitting and improving generalization over tens of thousands of epochs.
+**What the Paper Says:** Reducing recursion from T=3, n=6 to T=2, n=2 drops Sudoku accuracy from 87.4% to 73.7% — a 14% decline.
 
-4. **Architecture Defines Learning Dynamics:**
-    - Each configuration produced a unique learning curve, showing that architecture affects not just the final outcome but also the speed and ceiling of learning. Quick experiments are useful for understanding initial dynamics but can't reveal long-term behaviors like generalization.
+**Why This Matters:** The high initial loss reveals that shallow recursion cripples the model's representational power *by design*. Even with perfect training, there aren't enough recursive "thinking steps" to solve complex problems. **You cannot compensate for insufficient recursion depth with better training.**
 
-This confirms the "less is more" thesis: **architectural constraints, like a smaller network, can improve learning by forcing reliance on recursion.**
+**3. EMA Has Minimal Short-Term Impact**
+
+Removing EMA barely affected 10-epoch performance (final loss 1.042 vs 1.062 for baseline, only ~2% difference).
+
+**What the Paper Says:** On Sudoku-Extreme, removing EMA drops accuracy from 87.4% to 79.9% — an 8% decline after full training.
+
+**Why the Difference?** EMA is an **Exponential Moving Average** of model weights that stabilizes training over long runs. In short experiments, both models are still exploring and haven't yet encountered the instability that EMA prevents. Over 50,000+ epochs, EMA prevents catastrophic divergence and overfitting spikes, making it essential for final performance.
+
 
 ---
 
-**HRM's Process:**
-```python
-# HRM uses two networks
-for i in range(2):  # Apply fL twice
-    zL = fL(zL + zH + x)
-    
-zH = fH(zL + zH)  # Apply fH once
-```
 
 ```python
 # Initialize
@@ -302,28 +254,4 @@ for supervision_step in range(16):
 
 ---
 
-### Understanding Q Halt Loss: Teaching the Model When to Stop Thinking
-
-TRM uses **Adaptive Computation Time (ACT)** to learn not just *how* to solve problems, but also *when to stop* thinking. This is managed by an outer adaptive loop that can run up to 16 times, but can halt early if the model is confident in its answer.
-
-#### How Q Halt Works
-
-The model computes two values: `q_halt_logits` (the value of stopping) and `q_continue_logits` (the value of continuing). It stops when `q_halt > q_continue`.
-
-The model learns to make this decision through a **Q halt loss function**, which essentially teaches `q_halt` to predict whether the current answer is correct.
-
-*   If the answer is correct -> `q_halt` should be high (stop).
-*   If the answer is incorrect -> `q_halt` should be low (continue).
-
-#### Why Q Halt Loss is Tiny Early in Training
-
-The Q halt loss is often tiny at the start of training. This is expected. The Q-head is initialized to predict a very low probability of being correct (e.g., 0.67%). Since the untrained model gets nearly everything wrong, it is **already correct about being wrong**. The loss is therefore small.
-
-The Q halt loss becomes important later, as the model starts solving problems correctly and needs to learn to distinguish between a right and wrong answer to decide when to stop. This creates a curriculum where the model first learns **how** to solve a problem, then learns **when** it has succeeded.
-
-#### Benefits of Adaptive Halting
-- **Efficiency**: Spend more computation on harder problems, less on easier ones.
-- **Generalization**: Forces the model to understand solution quality.
-- **Human-like**: Mirrors the human behavior of thinking longer about harder problems.
-
-In practice, an easy maze might halt after 2-3 thinking steps, while a difficult one uses all 16.
+Thank you for reading this tutorial and see you in the next one.
