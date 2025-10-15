@@ -1,0 +1,40 @@
+# Maze training config - ablation: no EMA
+
+defaults:
+  - arch: trm_maze_baseline
+  - _self_
+
+hydra:
+  output_subdir: null
+
+# Data path
+data_paths: ['data/maze-30x30-hard-1k']
+data_paths_test: []
+
+evaluators: []
+
+# Hyperparams - Training
+global_batch_size: 768
+
+epochs: 60000
+eval_interval: 10000
+min_eval_interval: 50000
+checkpoint_every_eval: True
+
+lr: 1e-4
+lr_min_ratio: 1.0
+lr_warmup_steps: 2000
+
+beta1: 0.9
+beta2: 0.95
+weight_decay: 1.0
+puzzle_emb_weight_decay: 1.0
+
+puzzle_emb_lr: 1e-4
+
+seed: 0
+
+ema: False  # ABLATION: Disable EMA
+ema_rate: 0.999
+freeze_weights: False
+
