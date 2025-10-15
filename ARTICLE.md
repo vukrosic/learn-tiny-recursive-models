@@ -2,39 +2,25 @@ Of course. Let's start completely from scratch, defining every term, and we'll u
 
 ### The Big Picture: What is TRM and Why Does It Matter?
 
-Before diving into how TRM works, let's understand what problem it's solving and why it's remarkable.
+**The Challenge with LLMs:** Large Language Models (LLMs) often struggle with reasoning puzzles like Sudoku or maze-solving. These problems require precise, step-by-step thinking where one error can derail the entire solution. The usual approach of making models bigger is costly and often ineffective.
 
-**The Challenge:** Large Language Models (LLMs) like GPT-4 or Claude, with hundreds of billions of parameters, struggle on certain types of reasoning puzzles. Problems like Sudoku, maze-solving, and geometric puzzles (like ARC-AGI) require careful step-by-step reasoning where a single mistake can ruin the entire solution.
-
-**The Traditional Solution:** Make the models bigger and use more computing power. But this is expensive and doesn't always work. Even the largest LLMs with advanced techniques like "chain-of-thought" reasoning often fail at these puzzles.
-
-**TRM's Approach:** Instead of using a massive model, use a **tiny 2-layer transformer** (only 7 million parameters - about 0.01% the size of large LLMs) that thinks recursively. Rather than having a lot of parameters, it reuses the same 2 transformer layers over and over again, eg. `7*3*16=336` times to get an answer.
+**TRM's Solution:** TRM uses a tiny 2-layer transformer (7M parameters) that thinks recursively. It reuses its 2 layers hundreds of times to solve a problem.
 
 **The Results:**
-- On **Sudoku-Extreme** (very difficult Sudoku puzzles): TRM achieves **87.4% accuracy** with only 5M parameters, while models 100x larger achieve 0%
-- On **ARC-AGI** (geometric reasoning puzzles): TRM achieves **44.6% accuracy** with 7M parameters, outperforming most LLMs with thousands of times more parameters
-- Trained on only **~1,000 examples**, yet generalizes to hundreds of thousands of test cases
+- **Sudoku-Extreme:** 87.4% accuracy (with 5M parameters), while models 100x larger get 0%.
+- **ARC-AGI Puzzles:** 44.6% accuracy (with 7M parameters), outperforming models thousands of times larger.
+- **Efficiency:** Generalizes from just ~1,000 examples to solve hundreds of thousands of test cases.
 
 This "less is more" approach proves that clever architecture beats brute force size.
 
 ---
 
-### Teaching a Computer to Solve a Maze
+### Step 1: Setup
 
-Imagine you have a picture of a maze. The input is the maze itself, with walls and an empty path. The output you want is the *same picture* but with the correct path drawn on it.
-
-TRM is a method to teach a tiny computer brain (a **neural network**) how to do this. We don't program the rules for solving a maze. Instead, we show it many examples of unsolved mazes and their solutions, and it learns the patterns by itself. This process is called **supervised learning**.
-
-*   **Supervised Learning:** Learning by example. We provide the "question" (unsolved maze) and the "answer" (solved maze), and the model learns to generate answer based on the question / problem.
-
----
-
-### Step 1: Turning Pictures into Numbers (Data Preparation)
-
-A computer doesn't see a picture; it only sees numbers.
+Let's train TRM to solve a maze.
 
 **1. Representing the Maze as a Grid:**
-First, we simplify the maze picture into a grid of numbers. Each cell in the grid gets a number.
+First, we show maze as a grid of numbers. Each cell in the grid gets a number.
 
 *   `0` = Empty path
 *   `1` = Wall
@@ -57,12 +43,14 @@ For a concrete example, let's trace a tiny 3x3 maze.
     ```
 
 **2. Tokenization:**
-The term **token** just means a single unit of our data. In this case, a single number in the grid (`0`, `1`, `2`, `3`, or `4`) is a token. To make it easier for the network to process, we "unroll" the grid into a long, single list.
+The term **token** just means a single unit of our data. In this case, a single number in the grid (`0`, `1`, `2`, `3`, or `4`) is a token. To make it easier for the network to process, we "unroll" the grid into a long 1D list.
 
 For our 3x3 example, the grid is unrolled into a list of 9 tokens.
 
 **3. Embedding: Giving Meaning to Numbers:**
-Right now, the computer sees no difference between `4` (the path) and `1` (the wall). To let the model understand what these number mean, we will asign a big **vector embedding** to each. Vector embedding is a long vector (array of numbers) that the model can modify to store information about the wall, empty path, etc.
+To let the model understand what numbers like `4` and `1` mean, we will asign a big **vector embedding** to each. Vector embedding is a long vector (array of numbers) that the model can modify to store information about the wall, empty path, etc.
+
+These vectors will represent the meaning of a "wall" or "end point".
 
 *   An **Embedding Layer** is like a dictionary.
 *   **Input:** A token (e.g., the number `1` for "wall").
@@ -78,21 +66,12 @@ This rich representation is what we feed to the main model.
 
 ### Step 2: The Core Architecture: The TRM Brain
 
-The "brain" of TRM is a tiny neural network called `net`. It's very simple, with only 2 layers. Its job is to take in some information and process it to produce an output.
+The "brain" of TRM is a tiny 2-layer neural network called `net`. It processes information to produce an output. To "think," TRM uses two forms of memory:
 
-TRM also has two forms of memory it uses to "think":
+*   `y`: The model's current **best guess** for the solution. This is the "clean answer sheet."
+*   `z`: A **scratchpad** for reasoning, also called **latent thought**. This is for the "messy thinking process," where the model explores paths, notes dead ends, and tracks possibilities without committing to a final answer.
 
-*   `y`: The model's current **best guess** for the solution. Initially, it's blank.
-*   `z`: A **scratchpad** for reasoning, also called the **latent thought**. This is where the model keeps track of its "thoughts" as it works. For a maze, this could represent which paths it has explored, where the dead ends are, or the confidence it has in a certain path.
-
-The key difference is that `y` is for the **clean, final answer**, while `z` is for the **messy process of thinking**. The scratchpad `z` can store much more complex and abstract information (e.g., "this path is a dead end," "this is one of two possibilities to explore") without having to commit to a final answer. This separation allows the model to "reason" on its scratchpad before updating its final answer sheet.
-
-Both `y` and `z` have the same format as the embedded input `x`. For our 3x3 example, when the model starts, its memories are blank:
-
-*   `y_0`: A `9x8` matrix of all zeros.
-*   `z_0`: A `9x8` matrix of all zeros.
-
-To be clear, `z` is not one single vector for the whole maze. It's a full grid of vectors, with one vector for every single square in the maze. Think of it as a transparent overlay where the model can write a detailed "note" (a vector) on each square, representing its current thought about that specific location. The whole process is about iteratively improving `y` and `z`.
+Both `y` and `z` are grids of vectors, the same shape as the input maze. `z` acts like a transparent overlay on the maze, where the model jots down detailed notes on each square. The process is about iteratively improving `y` and `z` from a blank state. For our 3x3 example, they start as `9x8` matrices of zeros.
 
 ---
 
@@ -102,63 +81,37 @@ TRM learns in a series of nested loops. Let's start with the highest level and s
 
 #### The Outermost Loop: Deep Supervision (Learning from Practice)
 
-This is the highest level, where the actual learning is triggered. It gives the model multiple "chances" (up to 16) to solve the same maze, getting a little smarter after each chance.
+This is the highest level, where learning happens. The model gets multiple "chances" (up to 16) to solve the same maze, refining its `net` weights each time.
 
-*   **Chance #1:**
-    1.  **Start:** The model begins with the blank memories we defined above (`y_0` and `z_0`).
-    2.  **Think:** It runs the *entire middle loop* (`deep_recursion`) on these blank memories to get its first final prediction.
-    3.  **Compare:** This prediction is compared to the true solution (`y_true`), and the difference is calculated as the **error** (or **loss**).
-    4.  **Backpropagate:** Now, learning happens. The error is "backpropagated" through the computation. This process works backward to figure out how each weight in the `net` contributed to the error and nudges it in the right direction to make the error smaller.
-    5.  **Carry Over:** The final memories (`y` and `z`) from this chance are saved.
+1.  **First Chance:** The model starts with blank memories (`y_0`, `z_0`), runs its full thought process to make a prediction, and compares it to the correct solution to calculate an error. This error is used to adjust the `net`'s weights via backpropagation.
+2.  **Subsequent Chances:** For the next chance, it starts with the *smarter memories* from the end of the previous one. This allows it to build on its previous reasoning and refine its solution further.
 
-*   **Chance #2 and beyond:**
-    1.  **Start:** The model begins, but this time it uses the *smarter, saved memories* from the end of the previous chance.
-    2.  **Think, Compare, Backpropagate:** It repeats the same process. Because it started with better memories, its prediction is likely better, and the learning process can refine the `net`'s weights even further.
-
-This technique of providing the learning signal at multiple stages of the reasoning process is called **Deep Supervision**.
+This technique of providing the learning signal at multiple stages is called **Deep Supervision**.
 
 #### The Middle Loop: `deep_recursion` (A Full Thought Process)
 
-The middle loop's job is to produce one high-quality, complete thought. It doesn't just run the inner loop once. Instead, it runs it `T` times (e.g., `T=3`) to get a better result, but it does so in a clever way to save computation.
+This loop produces one complete thought. It runs the inner loop `T` times (e.g., `T=3`), using a warm-up phase to save computation.
 
-*   **Round 1 & 2 (Warm-up):** The model runs the entire inner loop (`latent_recursion`) twice. It does this in a special "no gradient" mode, which is like sketching on a rough draft. The computations are faster because the model doesn't need to meticulously track every single step for the purpose of learning later. The goal is to get the memories (`y` and `z`) from a blank state into a much more reasonable one.
+*   **Rounds 1 & 2 (Warm-up):** The model runs the inner loop twice in a "no-gradient" mode. This is like sketching on a rough draft—it's faster and gets the memories from a blank state into a more reasonable one.
+*   **Round 3 (For Real):** It runs the inner loop one last time, carefully tracking all calculations. This "final draft" is used for learning.
 
-*   **Round 3 (For Real):** Now that the memories are warmed up, the model runs the inner loop one last time. This time, it **carefully tracks every single calculation**. This is the "final draft" of its thought process. This detailed record is what will be used for learning.
-
-At the end of this middle loop, we have a final, predicted answer (`y`) that is the result of a warmed-up and carefully considered thought process.
+The result is a final prediction (`y`) from a warmed-up and carefully considered thought process.
 
 #### The Innermost Loop: `latent_recursion` (The Core Thought)
 
-This is where the tiny brain, `net`, does its work. Think of this loop as a single, focused moment of thought. The exact same `net` (the same 2-layer Transformer with the same learned weights) is the engine for both phases of this process. It happens in two phases.
+This is where the tiny `net` does its work. The same 2-layer Transformer is used in both phases.
 
 **Phase A: Reasoning (Updating the Scratchpad `z`)**
-This is where the model "thinks." It's a loop of 6 steps designed to refine its scratchpad (`z`).
+The model "thinks" by refining its scratchpad `z` in a loop of 6 steps. In each step, it processes the input maze, its current guess `y`, and its previous thought `z` to produce a new, more refined `z`. This builds a chain of reasoning.
 
-*   **What is `z` doing intuitively?** The scratchpad `z` is the model's working memory. At each step, it might learn to represent different things. For a maze, step 1 could be "identify the start," step 2 "find all paths connected to the start," step 3 "see where those paths lead," and so on. It's a chain of reasoning.
-
-*   **Example Trace (Inside Round 1):** Let's see how `z` evolves from its blank state `z_0`, while `y` remains `y_0`.
-    *   **Step 1:**
-        *   **Input**: `z_0 + y_0 + x_embedded`. Since the memories are blank, this is just `x_embedded`.
-        *   **Process**: The `net` processes this input.
-        *   **Output**: `z_0.1`. The scratchpad now contains a basic understanding of the maze layout.
-    *   **Step 2:**
-        *   **Input**: `z_0.1 + y_0 + x_embedded`.
-        *   **Process**: The `net` processes this input, seeing its first thought (`z_0.1`) in the context of the problem (`x`).
-        *   **Output**: `z_0.2`. The scratchpad might now highlight paths adjacent to the start.
-    *   **Steps 3-6:** This repeats. Each time, the newest scratchpad is added to `y_0` and `x` and passed through the `net`. At the end, we have the final scratchpad for this round, `z_0.6`.
+*   **Example Trace:** `z` evolves from a blank state (`z_0`) to `z_0.6` over 6 steps, with each step adding more insight about the maze layout, potential paths, etc.
 
 **Phase B: Refining the Answer (Updating the Guess `y`)**
-After the 6-step reasoning loop in Phase A, the model performs a single pass to update its answer sheet.
+After the reasoning loop, the model makes a single pass to update its answer sheet.
 
-*   **How it works:** This step uses the same `net` as Phase A. The model's previous answer (`y`) and its final, polished thought from the scratchpad (`z`) are merged by adding them together. This combined tensor is passed through the `net` just once. The output becomes the new, improved `y`.
+*   **How it works:** It combines its previous answer (`y`) with its final thought (`z`) and passes it through the same `net` one last time. The output is the new, improved `y`.
 
-*   **Example Trace (End of Round 1):**
-    *   **Step 7:**
-        *   **Input**: `z_0.6 + y_0`.
-        *   **Process**: The `net` processes the final thought (`z_0.6`) combined with the blank answer sheet (`y_0`).
-        *   **Output**: `y_1`. This is the first non-blank answer sheet.
-
-At the end of Round 1, we now have `y_1` and `z_0.6`. These become the inputs for Round 2 (the second warm-up). Round 2 produces `y_2` and `z_2`. These then become the inputs for Round 3 (the "for real" pass), which produces the final memories `y_3` and `z_3`. It's this final `y_3` from Chance #1 that is compared to the correct answer to calculate the error and trigger learning.
+This process—reasoning on the scratchpad, then updating the answer—is repeated, creating a cycle of thought and refinement.
 
 ### Summary of the Flow
 
@@ -175,33 +128,27 @@ By repeating this entire nested process for thousands of different mazes, the ti
 
 ### Step 4: Testing the Recipe — Why Does This Work? (Ablation Studies)
 
-To understand what makes TRM effective, we can perform **ablation studies**. This means we systematically break parts of the model to see how it affects its ability to solve mazes. Here is a breakdown of the key components and what happens when we change them.
+To understand what makes TRM effective, we can perform **ablation studies**—systematically breaking parts of the model to see what happens. Here's a breakdown of the key components.
 
-1.  **The Baseline Model:** This is the standard TRM we've discussed. Its key components are:
-    *   **`T=3` (Deep Recursion):** The model performs 3 full "thought processes" on the maze. It carries its memory from one process to the next, allowing it to iteratively refine its solution.
-    *   **`n=6` (Latent Reasoning):** Within each of the 3 thought processes, the model spends 6 steps updating its internal "scratchpad" (`z`) before committing to an update of its final answer (`y`). This creates a chain of reasoning.
-    *   **A Tiny 2-Layer Network:** The core "brain" is very small, which forces it to rely on the recursive process rather than raw size to solve the problem.
-    *   **Exponential Moving Average (EMA):** This is a training stabilizer. It works by keeping a running average of the model's weights during training. This helps smooth out the learning process and find a more robust and general solution.
+1.  **The Baseline Model:** The standard TRM with all its key components:
+    *   **Deep Recursion (`T=3`):** 3 full "thought processes" to iteratively refine the solution.
+    *   **Latent Reasoning (`n=6`):** 6 steps of scratchpad (`z`) updates before updating the answer (`y`).
+    *   **Tiny 2-Layer Network:** Forces reliance on recursion over raw size.
+    *   **Exponential Moving Average (EMA):** A training stabilizer for more robust learning.
 
 2.  **Ablation: No Exponential Moving Average (EMA)**
-    *   **What it is:** A technique to average model weights over time to find a more stable and general solution.
-    *   **What it does:** It acts like a stabilizer, preventing the training process from making drastic updates and helping the model settle on a solution that works well on mazes it has never seen before.
-    *   **The Change:** We turn this averaging off. The model is updated more directly based on its immediate errors.
-    *   **Expected Outcome:** A drop in performance. Without EMA, training can become erratic, and the model is more likely to memorize the training data (overfit) instead of learning the general rules of maze-solving.
+    *   **Change:** Turn off the weight averaging stabilizer.
+    *   **Expected Outcome:** Worse performance. Without EMA, training can be erratic and lead to overfitting.
 
 3.  **Ablation: Less Recursion**
-    *   **What `T` and `n` are:** `T` is the number of high-level attempts to solve the puzzle, while `n` is the number of detailed reasoning steps within each attempt. Together, they determine the "depth" of the model's thought process.
-    *   **What they do:** They give the model time and steps to reason. For a hard maze, a long chain of reasoning is needed to explore paths and rule out dead ends.
-    *   **The Change:** We drastically reduce the thinking time by setting `T=2` and `n=2`. This cuts the effective reasoning depth from 42 steps (3 * (6+1) * 2) down to just 12 (2 * (2+1) * 2).
-    *   **Expected Outcome:** A major drop in accuracy. With insufficient thinking time, the model cannot perform the complex chain of reasoning needed to solve difficult mazes. This test is designed to prove that the recursive process itself is critical.
+    *   **Change:** Drastically reduce thinking time by setting `T=2` and `n=2`.
+    *   **Expected Outcome:** A major drop in accuracy. The model needs sufficient recursive depth to perform the complex chain of reasoning required for hard problems.
 
 4.  **Ablation: A Bigger Brain vs. Deeper Thought**
-    *   **What the network is:** The small 2-layer `net` is the engine that does the thinking at every single step of the recursion.
-    *   **What it does:** Its size (number of layers) determines how much information it can process in a single step.
-    *   **The Change:** We double the brain size to a 4-layer `net`, but to keep the total computation roughly the same, we reduce the latent reasoning steps to `n=3`.
-    *   **Expected Outcome:** Performance gets worse. This supports the "less is more" hypothesis. A bigger network has more power to just memorize the training mazes. A smaller network, forced to think for longer (more recursion), is more likely to learn the general *strategy* of solving a maze, which allows it to perform better on unseen problems.
+    *   **Change:** Double the network size to 4 layers, but reduce latent reasoning to `n=3` to keep computation similar.
+    *   **Expected Outcome:** Worse performance. A bigger network is more prone to memorizing training data. A smaller network *forced* to think longer (more recursion) learns the general *strategy* better.
 
-These experiments help confirm that the key ingredients to TRM's success are its deep, nested recursion with a tiny network and stabilized training.
+These experiments help confirm that TRM's success comes from deep, nested recursion with a tiny network and stabilized training.
 
 #### Experimental Results: Ablation Studies in Practice
 
@@ -263,38 +210,23 @@ The fact that Less Recursion starts at 2.100 (vs 1.789 for baseline) is highly i
 - This immediately leads to worse initial predictions, even with identical weight initialization
 - It suggests that **architectural compute capacity** directly affects representational power
 
-**The Take-aways:**
+**The Takeaways:**
 
-1. **The Short-Term vs Long-Term Trade-off (Most Important):**
-   - **Bigger networks win short-term**: 4-layer achieved best 10-epoch loss (1.007)
-   - **Smaller networks win long-term**: Paper shows 2-layer wins at 50k+ epochs
-   - This paradox is CENTRAL to TRM's design philosophy
-   - Small networks + deep recursion = forced generalization, not memorization
-   - Bigger networks learn faster but generalize worse - exactly what we're trying to avoid!
+1. **The Short-Term vs. Long-Term Trade-off (Most Important):**
+    - **Bigger networks win short-term**: The 4-layer network achieved the best 10-epoch loss (1.007).
+    - **Smaller networks win long-term**: The paper shows the 2-layer network wins at 50k+ epochs because it is forced to learn a general strategy instead of memorizing, which leads to better generalization. This paradox is central to TRM's design.
 
 2. **Recursion Depth is Absolutely Critical:**
-   - The "Less Recursion" results confirm: you CANNOT compromise on H_cycles and L_cycles
-   - Starting 17% worse, ending 9% worse - shallow recursion cripples the architecture
-   - This isn't about optimization or training tricks; it's fundamental to representation
-   - Deep recursive computation is the core innovation, not a tunable hyperparameter
+    - The "Less Recursion" model started with a 17% higher loss and performed worst overall.
+    - This confirms you cannot compromise on recursive depth (`H_cycles` and `L_cycles`); it is fundamental to the architecture's ability to reason.
 
-3. **Architectural Hierarchy of Importance** (observed in our 10-epoch runs):
-   - **Network Size (4 vs 2 layers):** ~5% impact on final loss
-   - **Recursion Depth (H=3,L=6 vs H=2,L=2):** ~4% degradation
-   - **EMA (True vs False):** ~2% difference
-   - But remember: this ranking REVERSES long-term! Small networks pull ahead.
+3. **EMA is a Long-Term Stabilizer:**
+    - The effect of EMA was minimal in short training runs (~2% difference). Its real value is in preventing overfitting and improving generalization over tens of thousands of epochs.
 
-4. **Timescale Matters for Evaluation:**
-   - 10-epoch runs show immediate learning dynamics
-   - Can't reveal overfitting, generalization, or the true value of EMA
-   - The "Bigger Brain wins" result would REVERSE over 50k epochs
-   - Quick experiments are useful for understanding, not for making architectural decisions
+4. **Architecture Defines Learning Dynamics:**
+    - Each configuration produced a unique learning curve, showing that architecture affects not just the final outcome but also the speed and ceiling of learning. Quick experiments are useful for understanding initial dynamics but can't reveal long-term behaviors like generalization.
 
-5. **The "Less is More" Thesis Validated:**
-   - We directly observed WHY the paper uses tiny 2-layer networks
-   - NOT because they're faster (they're not - 4-layer won here)
-   - Because forcing the model to rely on recursion creates better long-term generalization
-   - This is a profound insight: **architectural constraints can improve learning**
+This confirms the "less is more" thesis: **architectural constraints, like a smaller network, can improve learning by forcing reliance on recursion.**
 
 ---
 
@@ -343,109 +275,26 @@ for supervision_step in range(16):
 
 ### Understanding Q Halt Loss: Teaching the Model When to Stop Thinking
 
-One of TRM's clever features is **Adaptive Computation Time (ACT)** - the model learns not just *how* to solve problems, but also *when to stop* thinking and output an answer.
-
-#### Two Levels of Recursion
-
-TRM actually has **two separate levels of iteration**:
-
-1. **Inner Fixed Recursion** (H_cycles & L_cycles): This is the predetermined computational structure we discussed earlier. For example:
-   - **L-level** (Low): processes details, runs 6 times per H-step
-   - **H-level** (High): processes abstractions, runs 3 times
-   - This structure is **fixed** and happens every thinking step
-
-2. **Outer Adaptive Halting** (halt_max_steps): The model can call the entire inner recursion **multiple times**:
-   - Up to **16 thinking steps** (`halt_max_steps=16`)
-   - But can **halt early** if it decides the answer is good enough
-   - During training: learns when to stop based on answer quality
-   - During evaluation: uses max steps for consistency
-
-The complete structure looks like:
-```python
-for thinking_step in 1..16:  # ← Adaptive (Q halt decides this)
-    
-    # One complete inner reasoning cycle (FIXED):
-    for H in 1..3:              # ← Fixed H_cycles
-        for L in 1..6:          # ← Fixed L_cycles  
-            update_low_level_representation()
-        update_high_level_representation()
-    
-    predict_answer()
-    
-    if q_halt > q_continue:     # ← Learned decision
-        break  # Stop thinking!
-```
+TRM uses **Adaptive Computation Time (ACT)** to learn not just *how* to solve problems, but also *when to stop* thinking. This is managed by an outer adaptive loop that can run up to 16 times, but can halt early if the model is confident in its answer.
 
 #### How Q Halt Works
 
-The model computes two Q-values (from Q-learning):
-- **`q_halt_logits`**: The value of stopping and outputting the current answer
-- **`q_continue_logits`**: The value of continuing to think
+The model computes two values: `q_halt_logits` (the value of stopping) and `q_continue_logits` (the value of continuing). It stops when `q_halt > q_continue`.
 
-The halting decision is: **stop when `q_halt > q_continue`**
+The model learns to make this decision through a **Q halt loss function**, which essentially teaches `q_halt` to predict whether the current answer is correct.
 
-#### The Q Halt Loss Function
-
-```python
-q_halt_loss = binary_cross_entropy(
-    q_halt_logits,
-    is_answer_correct  # Target: is the current answer correct?
-)
-```
-
-**What it learns:** The model learns to predict whether its current answer is correct:
-- If correct → `q_halt` should be high (halt and output)
-- If incorrect → `q_halt` should be low (continue thinking)
-
-The total loss combines:
-```python
-total_loss = lm_loss + 0.5 * (q_halt_loss + q_continue_loss)
-```
-
-Where:
-- **`lm_loss`**: Standard language modeling loss (predicting correct tokens)
-- **`q_halt_loss`**: Learns when to stop (should predict correctness)
-- **`q_continue_loss`**: Bootstrapping target from Q-learning
+*   If the answer is correct -> `q_halt` should be high (stop).
+*   If the answer is incorrect -> `q_halt` should be low (continue).
 
 #### Why Q Halt Loss is Tiny Early in Training
 
-When you first train TRM, you might notice the Q halt loss is surprisingly small (around 0.0067) and barely changes. This is actually **working as intended**! Here's why:
+The Q halt loss is often tiny at the start of training. This is expected. The Q-head is initialized to predict a very low probability of being correct (e.g., 0.67%). Since the untrained model gets nearly everything wrong, it is **already correct about being wrong**. The loss is therefore small.
 
-**The Initialization:**
-```python
-# Q head is initialized with bias = -5
-q_halt_logit = -5.0
-sigmoid(-5.0) = 0.0067  # ≈ 0.67% probability answer is correct
-```
-
-**Early Training Reality:**
-- The untrained model gets everything wrong (accuracy ≈ 0%)
-- So the target is `0` (answer is NOT correct)
-- The model is already predicting "this is wrong" with 99.33% confidence
-
-**The Math:**
-```python
-# When answer is wrong (target=0): 
-loss = 0.006715  ← Very small!
-
-# When answer is right (target=1):
-loss = 5.006715  ← Large, but rare early on
-```
-
-**The Paradox:** The model is **already correct** about being wrong! Since it gets almost everything wrong early in training, and it's initialized to predict "wrong," the Q halt loss stays small.
-
-The Q halt loss becomes more interesting and important as training progresses:
-1. The model starts solving some problems correctly
-2. Now there's tension: should I halt (am I correct?) or continue (am I still wrong?)
-3. The Q halt loss increases and drives learning about **when to stop**
-
-This creates a curriculum where the model first learns **how** to solve problems (via LM loss), then learns **when** to stop solving them (via Q halt loss). This is similar to how humans learn - first we learn the skill, then we learn when we've done enough.
+The Q halt loss becomes important later, as the model starts solving problems correctly and needs to learn to distinguish between a right and wrong answer to decide when to stop. This creates a curriculum where the model first learns **how** to solve a problem, then learns **when** it has succeeded.
 
 #### Benefits of Adaptive Halting
+- **Efficiency**: Spend more computation on harder problems, less on easier ones.
+- **Generalization**: Forces the model to understand solution quality.
+- **Human-like**: Mirrors the human behavior of thinking longer about harder problems.
 
-This mechanism provides several advantages:
-- **Efficiency**: Spend more computation on harder problems, less on easier ones
-- **Generalization**: Forces the model to understand solution quality, not just memorize
-- **Human-like**: Mirrors human behavior of thinking longer about harder problems
-
-In practice, after full training, easy mazes might halt after 2-3 thinking steps, while difficult mazes use all 16 steps.
+In practice, an easy maze might halt after 2-3 thinking steps, while a difficult one uses all 16.
