@@ -1,8 +1,37 @@
 This repository contains the code for the Tiny Reasoning Model (TRM), a 7M parameter model that leverages recursion to solve complex reasoning tasks like Sudoku, Mazes, and ARC-AGI, outperforming much larger models.
 
+I spent whole day making a video that explains it step by step:
+
 - **YouTube:** [Watch the video](https://youtu.be/51uVH-sEvk0)
 - **Blog Post:** [Read the full article](https://opensuperintelligencelab.com/blog/tiny-recursive-model/)
 - **ArXiv Paper:** [Read the paper](https://arxiv.org/pdf/2510.04871v1)
+
+---
+
+## How to Use
+
+### 1. Setup
+
+```bash
+git clone https://github.com/your-repo/learn-tiny-recursive-models.git
+cd learn-tiny-recursive-models
+pip install -r requirements.txt
+```
+
+### 2. Prepare Data
+
+Build the dataset for the task you want to train on. For example, to build the maze dataset:
+
+```bash
+python dataset/build_maze_dataset.py
+```
+*Other datasets include ARC (`build_arc_dataset.py`) and Sudoku (`build_sudoku_dataset.py`).*
+
+### 3. Train the Model
+
+```bash
+python pretrain.py --config config/cfg_pretrain.yaml
+```
 
 ---
 
