@@ -151,3 +151,35 @@ At the end of Round 1, we now have `y_1` and `z_0.6`. These become the inputs fo
 6.  **Learning:** After a full thought process, the model compares its final answer to the correct one and uses **backpropagation** to adjust its brain.
 
 By repeating this entire nested process for thousands of different mazes, the tiny 2-layer `net` becomes surprisingly good at solving them, even though it was never told the rules. It learned the patterns of what a "path" looks like from start to finish.
+
+---
+
+### Step 4: Testing the Recipe — Why Does This Work? (Ablation Studies)
+
+To understand what makes TRM effective, we can perform **ablation studies**. This means we systematically break parts of the model to see how it affects its ability to solve mazes. Here is a breakdown of the key components and what happens when we change them.
+
+1.  **The Baseline Model:** This is the standard TRM we've discussed. Its key components are:
+    *   **`T=3` (Deep Recursion):** The model performs 3 full "thought processes" on the maze. It carries its memory from one process to the next, allowing it to iteratively refine its solution.
+    *   **`n=6` (Latent Reasoning):** Within each of the 3 thought processes, the model spends 6 steps updating its internal "scratchpad" (`z`) before committing to an update of its final answer (`y`). This creates a chain of reasoning.
+    *   **A Tiny 2-Layer Network:** The core "brain" is very small, which forces it to rely on the recursive process rather than raw size to solve the problem.
+    *   **Exponential Moving Average (EMA):** This is a training stabilizer. It works by keeping a running average of the model's weights during training. This helps smooth out the learning process and find a more robust and general solution.
+
+2.  **Ablation: No Exponential Moving Average (EMA)**
+    *   **What it is:** A technique to average model weights over time to find a more stable and general solution.
+    *   **What it does:** It acts like a stabilizer, preventing the training process from making drastic updates and helping the model settle on a solution that works well on mazes it has never seen before.
+    *   **The Change:** We turn this averaging off. The model is updated more directly based on its immediate errors.
+    *   **Expected Outcome:** A drop in performance. Without EMA, training can become erratic, and the model is more likely to memorize the training data (overfit) instead of learning the general rules of maze-solving.
+
+3.  **Ablation: Less Recursion**
+    *   **What `T` and `n` are:** `T` is the number of high-level attempts to solve the puzzle, while `n` is the number of detailed reasoning steps within each attempt. Together, they determine the "depth" of the model's thought process.
+    *   **What they do:** They give the model time and steps to reason. For a hard maze, a long chain of reasoning is needed to explore paths and rule out dead ends.
+    *   **The Change:** We drastically reduce the thinking time by setting `T=2` and `n=2`. This cuts the effective reasoning depth from 42 steps (3 * (6+1) * 2) down to just 12 (2 * (2+1) * 2).
+    *   **Expected Outcome:** A major drop in accuracy. With insufficient thinking time, the model cannot perform the complex chain of reasoning needed to solve difficult mazes. This test is designed to prove that the recursive process itself is critical.
+
+4.  **Ablation: A Bigger Brain vs. Deeper Thought**
+    *   **What the network is:** The small 2-layer `net` is the engine that does the thinking at every single step of the recursion.
+    *   **What it does:** Its size (number of layers) determines how much information it can process in a single step.
+    *   **The Change:** We double the brain size to a 4-layer `net`, but to keep the total computation roughly the same, we reduce the latent reasoning steps to `n=3`.
+    *   **Expected Outcome:** Performance gets worse. This supports the "less is more" hypothesis. A bigger network has more power to just memorize the training mazes. A smaller network, forced to think for longer (more recursion), is more likely to learn the general *strategy* of solving a maze, which allows it to perform better on unseen problems.
+
+These experiments help confirm that the key ingredients to TRM's success are its deep, nested recursion with a tiny network and stabilized training.
