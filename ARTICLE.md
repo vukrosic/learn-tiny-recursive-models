@@ -85,50 +85,71 @@ For our 3x3 example, `z` and `y` start as `9x8` matrices of zeros.
 
 ### Step 3: The Learning Process, from the Inside Out
 
-TRM learns in a series of nested loops. Let's start with the highest level and see how it uses our 3x3 maze example to learn.
-
-#### The Outermost Loop: Deep Supervision (Learning from Practice)
-
-This is the highest level, where learning happens. The model gets multiple "chances" (up to 16) to solve the same maze, refining its `net` weights each time.
-
-1.  **First Chance:** The model starts with blank memories (`y_0`, `z_0`), runs its full thought process to make a prediction, and compares it to the correct solution to calculate an error. This error is used to adjust the `net`'s weights via backpropagation.
-2.  **Subsequent Chances:** For the next chance, it starts with the *smarter memories* from the end of the previous one. This allows it to build on its previous reasoning and refine its solution further.
-
-This technique of providing the learning signal at multiple stages is called **Deep Supervision**.
-
-#### The Middle Loop: `deep_recursion` (A Full Thought Process)
-
-This loop produces one complete thought. It runs the inner loop `T` times (e.g., `T=3`), using a warm-up phase to save computation.
-
-*   **Rounds 1 & 2 (Warm-up):** The model runs the inner loop twice in a "no-gradient" mode. This is like sketching on a rough draft—it's faster and gets the memories from a blank state into a more reasonable one.
-*   **Round 3 (For Real):** It runs the inner loop one last time, carefully tracking all calculations. This "final draft" is used for learning.
-
-The result is a final prediction (`y`) from a warmed-up and carefully considered thought process.
+TRM learns in a series of nested loops. Let's start from the core and build our way out.
 
 #### The Innermost Loop: `latent_recursion` (The Core Thought)
 
-This is where the tiny `net` does its work. The same 2-layer Transformer is used in both phases.
+This is where the tiny `net` (a 2-layer Transformer) does all its work. The process is broken into two phases that repeat to form a cycle of thinking and refining.
 
 **Phase A: Reasoning (Updating the Scratchpad `z`)**
-The model "thinks" by refining its scratchpad `z` in a loop of 6 steps. In each step, it processes the input maze, its current guess `y`, and its previous thought `z` to produce a new, more refined `z`. This builds a chain of reasoning.
+The model "thinks" by refining its internal planning token `z`, in a loop of 6 steps. The goal is to build a better and better plan for changing `y`.
 
-*   **Example Trace:** `z` evolves from a blank state (`z_0`) to `z_0.6` over 6 steps, with each step adding more insight about the maze layout, potential paths, etc.
+1.  **The Process:** In each of the 6 steps, the `net` takes three inputs:
+    *   The maze itself (`x`).
+    *   The model's current best guess for the solution (`y`) - this could be all zeroes at the beginning.
+    *   The scratchpad from the previous step (`z`).
+2.  **How it works:**
+    *   **Combining Inputs:** The three inputs are added together element-wise (`x + y + z`). This creates a single sequence of rich vectors, where each vector (representing a cell in the maze) contains combined information about the maze layout (`x`), the current guess (`y`), and the ongoing thought process (`z`).
+    *   **Thinking with Attention:** This combined sequence is fed into the 2-layer Transformer. The Transformer's self-attention mechanism allows it to look at all the cells at once and identify relationships. For example, it can see how the "start" cell relates to a potential path cell, informed by the input data `x` and the reasoning `z`.
+    *   **Generating the Next Thought:** The two transformer layers process this information and output a new sequence of vectors of the exact same shape. This output *is* the new `z`. There isn't a separate "output head" to generate it; the transformation performed by the two layers *is* the act of creating the next, more refined thought. Even though the input was a sum containing `x` and `y`, the network learns to produce an output that serves as a useful new `z` for the next step.
+
+    This process repeats 6 times, meaning the information is passed through the same two layers six consecutive times, becoming progressively more sophisticated with each pass.
+3.  **Example Trace:** After a few passes through transformer, `z` might encode low-level features like wall locations. By the sixth pass, it might represent a high-level plan for updating answer (`y`).
+   
+   - Interestingly, the same 2 transformer layers are used for detecting low level features, making high level plan and later for updating `y` itself. These 2 layers have multiple purposes, which is the power of neural networks, it can learn to do multiple, less related or unrelated transformations taht only depends on the input data.
 
 **Phase B: Refining the Answer (Updating the Guess `y`)**
-After the reasoning loop, the model makes a single pass to update its answer sheet.
+After the 6-step reasoning loop, using the latest latent though `z` the model updates its answer `y`.
 
-*   **How it works:** It combines its previous answer (`y`) with its final thought (`z`) and passes it through the same `net` one last time. The output is the new, improved `y`.
+*   **How it works:** It combines its previous answer (`y`) with its final, refined thought (`z`) by adding them together (`y + z`) and passes the result through the same `net` one last time. The output is the new, improved `y`.
+    *   **Crucially, `x` is not included in this step.** This is a deliberate design choice that tells the single `net` which task to perform.
+    *   `x` is present in reasoning (`x + y + z`).
+    *   `x` is absent in answer refinement (`y + z`).
 
-This process—reasoning on the scratchpad, then updating the answer—is repeated, creating a cycle of thought and refinement.
+The reason I said "answer refinement" is because this 6+1 loop happens multiple times, each time "thinking" for 6 passes and updating `y` once.
+
+#### The Middle Loop: `deep_recursion` (The Full Thought Process)
+
+Now that we understand how reasoning + y refinement loop works, let's see the full thought process from the beginning where this whole loop is repeated 3 times to get the best `y`.
+
+The previously described inner loop (the 6+1 steps of reasoning and `y` refinement) runs `T` times (e.g., `T=3`). The state (`y` and `z`) is **carried over** between these runs; it is not reset to zero.
+
+*   **Round 1 (Warm-up):** Starts with a blank (all zeroes) `y` and `z` (remember, this is the absolute beginning of the process, so there is no `y` and `z` to carry over). It runs the full inner loop (6 reasoning + 1 `y` refinement steps) to produce smarter `y_1` and `z_1`. This is done in "no-gradient" mode for speed and memory savings - neural network doesn't learn here.
+*   **Round 2 (Warm-up):** It takes `y_1` and `z_1` as its starting point and runs the inner loop again to produce an even better `y_2` and `z_2`. Still no gradients and learning.
+*   **Round 3 (For Real):** It starts with the well-reasoned `y_2` and `z_2`, runs the inner loop one final time, and this time all calculations are tracked so the model can learn with backpropagation.
+
+This process of warming up the model's "thought" before the final, learnable step is a key optimization.
+
+#### The Outermost Loop: Even more loops!
+
+The model gets multiple "chances" (up to 16) to solve the same maze, and after each chance, it refines its `net` weights. The state (`y` and `z`) **is carried over** from one middle loop iteration to the next, as shown in the paper's pseudocode. It allows the model to get multiple "chances" (up to 16) to solve the same maze, improving with each one.
+
+This is just repeating middle loop up to 16 times. Model can decide to stop earlier than 16 if it feels like it got the correct answer.
+
+Why we need this loop:
+
+After each middle loop itteration this outter loop updates weights once (remember that the Round 3 in middle loop does backpropagation).
+
+Then in the next iteration it repeats the middle loop with the updated weights, allowing the model to progressively improve its solution with each attempt.
 
 ### Summary of the Flow
 
 1.  **Data:** Maze picture -> Grid of numbers (**Tokens**).
 2.  **Embedding:** Tokens -> Rich descriptive **vectors** (`x`).
-3.  **Core Thought (`latent_recursion`):** The model thinks by iteratively updating its scratchpad (`z`), then uses that thought to update its answer sheet (`y`).
-4.  **Full Thought Process (`deep_recursion`):** The model "warms up" its thinking, then executes a final, trackable thought process.
-5.  **Practice (`Deep Supervision`):** The model gets multiple chances to solve the same problem, learning from its mistakes on each attempt and starting the next one with smarter memories.
-6.  **Learning:** After a full thought process, the model compares its final answer to the correct one and uses **backpropagation** to adjust its brain.
+3.  **Core Thought (`latent_recursion`):** The `net` thinks for 6 steps by updating its scratchpad (`z`) based on the maze (`x`) and its current guess (`y`). It then uses the final thought to produce an improved guess (`y`).
+4.  **Full Thought Process (`deep_recursion`):** The model "warms up" its thinking for 2 cycles, then executes a final, trackable thought process for 1 cycle.
+5.  **Practice (`Deep Supervision`):** The model gets multiple chances (up to 16) to solve the same maze, learning from its mistakes on each attempt and starting the next one with smarter memories.
+6.  **Learning:** After a full thought process, the model compares its final answer to the correct one and uses **backpropagation** to adjust its `net`.
 
 By repeating this entire nested process for thousands of different mazes, the tiny 2-layer `net` becomes surprisingly good at solving them, even though it was never told the rules. It learned the patterns of what a "path" looks like from start to finish.
 
