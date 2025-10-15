@@ -564,7 +564,7 @@ def save_and_plot_metrics(metrics_history: List[dict], output_dir: str = "."):
             plt.grid(True, alpha=0.3)
             plt.tight_layout()
             
-            plot_file = os.path.join(output_dir, "training_loss.png")
+            plot_file = os.path.join(output_dir, "plots", "training_loss.png")
             plt.savefig(plot_file, dpi=150, bbox_inches='tight')
             plt.close()
             print(f"Loss plot saved to {plot_file}")
@@ -703,7 +703,9 @@ def launch(hydra_config: DictConfig):
 
     # Save metrics and generate plot
     if RANK == 0 and metrics_history:
-        save_and_plot_metrics(metrics_history, output_dir=".")
+        # Create results directories if they don't exist
+        os.makedirs("results/plots", exist_ok=True)
+        save_and_plot_metrics(metrics_history, output_dir="results")
     
     # finalize
     if dist.is_initialized():

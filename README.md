@@ -2,7 +2,7 @@
 
 This is the codebase for the paper: "Less is More: Recursive Reasoning with Tiny Networks". TRM is a recursive reasoning approach that achieves amazing scores of 45% on ARC-AGI-1 and 8% on ARC-AGI-2 using a tiny 7M parameters neural network.
 
-[Paper](https://arxiv.org/abs/2510.04871)
+[Paper](https://arxiv.org/abs/2510.04871) | [Detailed Article with Ablations](ARTICLE.md)
 
 ### Motivation
 
@@ -134,6 +134,24 @@ arch.H_cycles=3 arch.L_cycles=4 \
 ```
 
 *Runtime:* < 24 hours
+
+## Documentation
+
+This repository includes detailed documentation:
+
+- **[ARTICLE.md](ARTICLE.md)**: In-depth explanation of TRM from first principles, including:
+  - How TRM works step-by-step with concrete examples
+  - Complete ablation study with experimental results and visualizations
+  - Analysis of 4 configurations: Baseline, No EMA, Less Recursion, and Bigger Brain
+  - Insights on why "less is more" for generalization
+
+- **[docs/](docs/)**: Documentation assets
+  - Contains figures and images used in documentation
+  - Committed to version control for consistent documentation rendering
+
+- **[results/](results/)**: Experimental outputs (gitignored)
+  - Generated training plots and metrics
+  - See `results/README.md` for reproduction instructions
 
 ## Reference
 

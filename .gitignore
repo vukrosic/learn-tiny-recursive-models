@@ -36,6 +36,7 @@ checkpoints/
 outputs/
 wandb/
 data/
+results/
 *.npy
 *.npz
 *.h5
