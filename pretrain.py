@@ -5,6 +5,7 @@ import math
 import yaml
 import shutil
 import copy
+import json
 
 import torch
 import torch.distributed as dist
@@ -532,6 +533,56 @@ def load_synced_config(hydra_config: DictConfig, rank: int, world_size: int) -> 
     return objects[0]  # type: ignore
 
 
+def save_and_plot_metrics(metrics_history: List[dict], output_dir: str = "."):
+    """Save metrics to JSON and generate loss plot"""
+    try:
+        import matplotlib
+        matplotlib.use('Agg')  # Use non-interactive backend
+        import matplotlib.pyplot as plt
+        
+        # Save metrics to JSON
+        metrics_file = os.path.join(output_dir, "training_metrics.json")
+        with open(metrics_file, 'w') as f:
+            json.dump(metrics_history, f, indent=2)
+        print(f"Metrics saved to {metrics_file}")
+        
+        # Extract loss data for plotting
+        steps = []
+        losses = []
+        for m in metrics_history:
+            if 'step' in m and 'train/lm_loss' in m:
+                steps.append(m['step'])
+                losses.append(m['train/lm_loss'])
+        
+        if losses:
+            # Create plot
+            plt.figure(figsize=(10, 6))
+            plt.plot(steps, losses, 'b-', linewidth=2, marker='o', markersize=4)
+            plt.xlabel('Step', fontsize=12)
+            plt.ylabel('LM Loss', fontsize=12)
+            plt.title('Language Model Loss Over Time', fontsize=14, fontweight='bold')
+            plt.grid(True, alpha=0.3)
+            plt.tight_layout()
+            
+            plot_file = os.path.join(output_dir, "training_loss.png")
+            plt.savefig(plot_file, dpi=150, bbox_inches='tight')
+            plt.close()
+            print(f"Loss plot saved to {plot_file}")
+            
+            # Print summary
+            print(f"\n{'='*50}")
+            print(f"Loss Summary:")
+            print(f"  Initial loss: {losses[0]:.6f}")
+            print(f"  Final loss: {losses[-1]:.6f}")
+            print(f"  Min loss: {min(losses):.6f}")
+            print(f"  Total steps: {len(steps)}")
+            print(f"{'='*50}\n")
+    except ImportError:
+        print("matplotlib not available, skipping plot generation")
+    except Exception as e:
+        print(f"Error saving/plotting metrics: {e}")
+
+
 @hydra.main(config_path="config", config_name="cfg_pretrain", version_base=None)
 def launch(hydra_config: DictConfig):
     RANK = 0
@@ -595,6 +646,9 @@ def launch(hydra_config: DictConfig):
         ema_helper = EMAHelper(mu=config.ema_rate)
         ema_helper.register(train_state.model)
 
+    # Metrics history for plotting
+    metrics_history = []
+    
     # Training Loop
     for _iter_id in range(total_iters):
         print (f"[Rank {RANK}, World Size {WORLD_SIZE}]: Epoch {_iter_id * train_epochs_per_iter}")
@@ -608,6 +662,9 @@ def launch(hydra_config: DictConfig):
 
             if RANK == 0 and metrics is not None:
                 wandb.log(metrics, step=train_state.step)
+                # Save metrics for plotting
+                metrics_with_step = {'step': train_state.step, **metrics}
+                metrics_history.append(metrics_with_step)
                 progress_bar.update(train_state.step - progress_bar.n)  # type: ignore
             if config.ema:
                 ema_helper.update(train_state.model)
@@ -644,6 +701,10 @@ def launch(hydra_config: DictConfig):
             if config.ema:
                 del train_state_eval
 
+    # Save metrics and generate plot
+    if RANK == 0 and metrics_history:
+        save_and_plot_metrics(metrics_history, output_dir=".")
+    
     # finalize
     if dist.is_initialized():
         dist.destroy_process_group()

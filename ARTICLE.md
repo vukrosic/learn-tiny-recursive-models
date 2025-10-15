@@ -1,6 +1,25 @@
 Of course. Let's start completely from scratch, defining every term, and we'll use a simpler problem than Sudoku that is easier to visualize: **solving a maze**.
 
-### The Big Picture: Teaching a Computer to Solve a Maze
+### The Big Picture: What is TRM and Why Does It Matter?
+
+Before diving into how TRM works, let's understand what problem it's solving and why it's remarkable.
+
+**The Challenge:** Large Language Models (LLMs) like GPT-4 or Claude, with hundreds of billions of parameters, struggle on certain types of reasoning puzzles. Problems like Sudoku, maze-solving, and geometric puzzles (like ARC-AGI) require careful step-by-step reasoning where a single mistake can ruin the entire solution.
+
+**The Traditional Solution:** Make the models bigger and use more computing power. But this is expensive and doesn't always work. Even the largest LLMs with advanced techniques like "chain-of-thought" reasoning often fail at these puzzles.
+
+**TRM's Approach:** Instead of using a massive model, use a **tiny 2-layer transformer** (only 7 million parameters - about 0.01% the size of large LLMs) that thinks recursively. Rather than having a lot of parameters, it reuses the same 2 transformer layers over and over again, eg. `7*3*16=336` times to get an answer.
+
+**The Results:**
+- On **Sudoku-Extreme** (very difficult Sudoku puzzles): TRM achieves **87.4% accuracy** with only 5M parameters, while models 100x larger achieve 0%
+- On **ARC-AGI** (geometric reasoning puzzles): TRM achieves **44.6% accuracy** with 7M parameters, outperforming most LLMs with thousands of times more parameters
+- Trained on only **~1,000 examples**, yet generalizes to hundreds of thousands of test cases
+
+This "less is more" approach proves that clever architecture beats brute force size.
+
+---
+
+### Teaching a Computer to Solve a Maze
 
 Imagine you have a picture of a maze. The input is the maze itself, with walls and an empty path. The output you want is the *same picture* but with the correct path drawn on it.
 
@@ -186,222 +205,154 @@ These experiments help confirm that the key ingredients to TRM's success are its
 
 ---
 
-### Step 5: How the Ablations are Coded — Implementation Details
-
-To truly understand how TRM works, let's look at how each ablation experiment differs in code from the baseline. This will show you exactly what changes when we "turn off" or modify different components.
-
-#### Baseline TRM Implementation
-
-First, let's understand the baseline code structure. The baseline TRM has these key components in the code:
-
-**1. The Network Architecture:**
+**HRM's Process:**
 ```python
-net = TransformerNetwork(
-    num_layers=2,           # Tiny: only 2 layers
-    hidden_size=512,        # Vector size
-    use_attention=False     # Uses MLP instead of self-attention for small grids
-)
+# HRM uses two networks
+for i in range(2):  # Apply fL twice
+    zL = fL(zL + zH + x)
+    
+zH = fH(zL + zH)  # Apply fH once
 ```
 
-**2. The Deep Recursion Loop (`T=3`):**
 ```python
-def deep_recursion(x, y, z, n=6, T=3):
-    # Warm-up rounds (T-1 = 2 times) - no gradients tracked
+# Initialize
+y, z = zeros_like(x), zeros_like(x)
+
+# Deep supervision loop (up to 16 times)
+for supervision_step in range(16):
+    
+    # Deep recursion: warm-up (2 times, no gradients)
     with torch.no_grad():
-        for round in range(T - 1):  # Rounds 1 and 2
-            y, z = latent_recursion(x, y, z, n)
+        for _ in range(2):
+            # Latent recursion
+            for _ in range(6):
+                z = net(x + y + z)
+            y = net(y + z)
     
-    # Final round with gradient tracking
-    y, z = latent_recursion(x, y, z, n)  # Round 3
+    # Deep recursion: final (1 time, WITH gradients)
+    for _ in range(6):
+        z = net(x + y + z)
+    y = net(y + z)
     
-    return y, z
-```
-
-**3. The Latent Recursion Loop (`n=6`):**
-```python
-def latent_recursion(x, y, z, n=6):
-    # Phase A: Update scratchpad z (n=6 steps)
-    for step in range(n):
-        z = net(x + y + z)  # Input includes x, y, and z
-    
-    # Phase B: Update answer y (1 step)
-    y = net(y + z)  # Input is only y and z (no x)
-    
-    return y, z
-```
-
-**4. The Training Loop with EMA:**
-```python
-# Create two copies of the model
-model = TRM()
-model_ema = TRM()  # Exponential Moving Average copy
-
-for batch in training_data:
-    # ... forward pass and compute loss ...
+    # Learn
+    y_pred = output_head(y)
+    loss = cross_entropy(y_pred, y_true)
     loss.backward()
     optimizer.step()
     
-    # Update EMA weights (slow-moving average)
-    for param, ema_param in zip(model.parameters(), model_ema.parameters()):
-        ema_param.data = 0.999 * ema_param.data + 0.001 * param.data
+    # Should we stop?
+    q = Q_head(y)
+    if q > 0:
+        break
 ```
-
-At test time, the `model_ema` (the averaged version) is used instead of `model`.
 
 ---
 
-#### Ablation 1: No EMA — How It's Coded
+### Understanding Q Halt Loss: Teaching the Model When to Stop Thinking
 
-**What changes in the code:**
+One of TRM's clever features is **Adaptive Computation Time (ACT)** - the model learns not just *how* to solve problems, but also *when to stop* thinking and output an answer.
 
-Simply remove the EMA update loop and use only the main model:
+#### Two Levels of Recursion
 
+TRM actually has **two separate levels of iteration**:
+
+1. **Inner Fixed Recursion** (H_cycles & L_cycles): This is the predetermined computational structure we discussed earlier. For example:
+   - **L-level** (Low): processes details, runs 6 times per H-step
+   - **H-level** (High): processes abstractions, runs 3 times
+   - This structure is **fixed** and happens every thinking step
+
+2. **Outer Adaptive Halting** (halt_max_steps): The model can call the entire inner recursion **multiple times**:
+   - Up to **16 thinking steps** (`halt_max_steps=16`)
+   - But can **halt early** if it decides the answer is good enough
+   - During training: learns when to stop based on answer quality
+   - During evaluation: uses max steps for consistency
+
+The complete structure looks like:
 ```python
-# Create only one model
-model = TRM()
-# No model_ema!
-
-for batch in training_data:
-    loss.backward()
-    optimizer.step()
-    # No EMA update step
+for thinking_step in 1..16:  # ← Adaptive (Q halt decides this)
+    
+    # One complete inner reasoning cycle (FIXED):
+    for H in 1..3:              # ← Fixed H_cycles
+        for L in 1..6:          # ← Fixed L_cycles  
+            update_low_level_representation()
+        update_high_level_representation()
+    
+    predict_answer()
+    
+    if q_halt > q_continue:     # ← Learned decision
+        break  # Stop thinking!
 ```
 
-At test time, use `model` directly (not an averaged version).
+#### How Q Halt Works
 
-**What this means:** Without EMA, the model weights jump around more during training. When it encounters a difficult example, it might make a large weight update that helps on that example but hurts on others. EMA smooths this out by keeping a "calm, averaged" version that doesn't overreact to individual examples.
+The model computes two Q-values (from Q-learning):
+- **`q_halt_logits`**: The value of stopping and outputting the current answer
+- **`q_continue_logits`**: The value of continuing to think
 
----
+The halting decision is: **stop when `q_halt > q_continue`**
 
-#### Ablation 2: Less Recursion (`T=2, n=2`) — How It's Coded
-
-**What changes in the code:**
-
-Change the recursion parameters in `deep_recursion` and `latent_recursion`:
+#### The Q Halt Loss Function
 
 ```python
-def deep_recursion(x, y, z, n=2, T=2):  # Changed from n=6, T=3
-    # Warm-up round (T-1 = 1 time) - no gradients tracked
-    with torch.no_grad():
-        for round in range(T - 1):  # Only 1 warm-up round now
-            y, z = latent_recursion(x, y, z, n)
-    
-    # Final round with gradient tracking
-    y, z = latent_recursion(x, y, z, n)
-    
-    return y, z
-
-def latent_recursion(x, y, z, n=2):  # Changed from n=6
-    # Phase A: Update scratchpad z (only 2 steps now)
-    for step in range(n):
-        z = net(x + y + z)
-    
-    # Phase B: Update answer y (1 step)
-    y = net(y + z)
-    
-    return y, z
-```
-
-**What this means:** 
-- **Baseline:** 3 full thought processes × (6 reasoning steps + 1 answer step) = 21 total network evaluations
-- **Ablation:** 2 full thought processes × (2 reasoning steps + 1 answer step) = 6 total network evaluations
-
-The model has much less time to "think" through the problem. For our 3x3 maze example, instead of:
-- Round 1: 6 scratchpad updates → answer update
-- Round 2: 6 scratchpad updates → answer update  
-- Round 3: 6 scratchpad updates → answer update
-
-It now only does:
-- Round 1: 2 scratchpad updates → answer update
-- Round 2: 2 scratchpad updates → answer update
-
-This is like giving a student only 2 attempts at a rough draft instead of 6, and only 2 full attempts instead of 3. The solution won't be as refined.
-
----
-
-#### Ablation 3: Bigger Brain (`4 layers, n=3`) — How It's Coded
-
-**What changes in the code:**
-
-```python
-# Change the network architecture
-net = TransformerNetwork(
-    num_layers=4,           # Changed from 2 to 4
-    hidden_size=512,
-    use_attention=False
+q_halt_loss = binary_cross_entropy(
+    q_halt_logits,
+    is_answer_correct  # Target: is the current answer correct?
 )
-
-# Adjust recursion to compensate
-def latent_recursion(x, y, z, n=3):  # Changed from n=6
-    for step in range(n):  # Only 3 steps now
-        z = net(x + y + z)
-    y = net(y + z)
-    return y, z
 ```
 
-**What this means:**
-- **Baseline:** 2-layer network × 6 reasoning steps = 12 layer passes through the scratchpad
-- **Ablation:** 4-layer network × 3 reasoning steps = 12 layer passes through the scratchpad
+**What it learns:** The model learns to predict whether its current answer is correct:
+- If correct → `q_halt` should be high (halt and output)
+- If incorrect → `q_halt` should be low (continue thinking)
 
-The total computation is roughly the same, but it's distributed differently:
-- **Baseline approach:** A simple 2-layer brain that's forced to think iteratively (6 times) to build up complex reasoning
-- **Ablation approach:** A more complex 4-layer brain that thinks fewer times (3 times)
-
-Think of it like this:
-- **Baseline:** A person with basic math skills solving `15 + 27 + 38 + 19 + 42 + 56` by adding one number at a time (6 steps)
-- **Ablation:** A person with a calculator doing `(15+27+38) + (19+42+56)` in fewer steps (3 steps)
-
-The calculator is more powerful per step, but surprisingly, the step-by-step approach generalizes better to new mazes the model has never seen. The bigger brain has more capacity to memorize specific training examples instead of learning general strategies.
-
----
-
-#### Ablation 4: Using Two Separate Networks (like HRM) — How It's Coded
-
-**What changes in the code:**
-
-Instead of one `net`, create two separate networks:
-
+The total loss combines:
 ```python
-# Create two networks
-net_L = TransformerNetwork(num_layers=2, hidden_size=512)  # For scratchpad
-net_H = TransformerNetwork(num_layers=2, hidden_size=512)  # For answer
-
-def latent_recursion(x, y, z, n=6):
-    # Phase A: Update scratchpad using net_L
-    for step in range(n):
-        z = net_L(x + y + z)  # Use net_L for reasoning
-    
-    # Phase B: Update answer using net_H
-    y = net_H(y + z)  # Use net_H for answer
-    
-    return y, z
+total_loss = lm_loss + 0.5 * (q_halt_loss + q_continue_loss)
 ```
 
-**What this means:**
-- **Baseline:** One 2-layer network (5M parameters) does both jobs
-- **Ablation:** Two 2-layer networks (10M parameters total) - one specialized for reasoning, one for answers
+Where:
+- **`lm_loss`**: Standard language modeling loss (predicting correct tokens)
+- **`q_halt_loss`**: Learns when to stop (should predict correctness)
+- **`q_continue_loss`**: Bootstrapping target from Q-learning
 
-The idea was that having specialized networks might help, but TRM discovered that the single network approach works better. The network can tell what job to do based on the inputs:
-- When it receives `x + y + z` → "I'm updating the scratchpad"
-- When it receives `y + z` (no `x`) → "I'm updating the final answer"
+#### Why Q Halt Loss is Tiny Early in Training
 
-The input structure itself tells the network which mode it's in, so specialization isn't needed.
+When you first train TRM, you might notice the Q halt loss is surprisingly small (around 0.0067) and barely changes. This is actually **working as intended**! Here's why:
 
----
+**The Initialization:**
+```python
+# Q head is initialized with bias = -5
+q_halt_logit = -5.0
+sigmoid(-5.0) = 0.0067  # ≈ 0.67% probability answer is correct
+```
 
-### Summary: Why These Experiments Matter
+**Early Training Reality:**
+- The untrained model gets everything wrong (accuracy ≈ 0%)
+- So the target is `0` (answer is NOT correct)
+- The model is already predicting "this is wrong" with 99.33% confidence
 
-By changing one component at a time and measuring performance, we learn:
+**The Math:**
+```python
+# When answer is wrong (target=0): 
+loss = 0.006715  ← Very small!
 
-1. **EMA is crucial** for stability when training on small datasets
-2. **Deep recursion (many thinking steps)** is more important than you might expect  
-3. **Smaller networks forced to recurse more** generalize better than bigger networks that recurse less
-4. **A single network can multitask** effectively when the input structure indicates the task
+# When answer is right (target=1):
+loss = 5.006715  ← Large, but rare early on
+```
 
-This systematic testing reveals that TRM's success comes from the combination of:
-- Tiny network (prevents memorization)
-- Deep recursion (enables complex reasoning)  
-- Deep supervision (provides learning signal at each improvement step)
-- Stable training (EMA smooths the learning)
+**The Paradox:** The model is **already correct** about being wrong! Since it gets almost everything wrong early in training, and it's initialized to predict "wrong," the Q halt loss stays small.
 
-Each piece plays a role, and removing any one of them significantly hurts performance.
+The Q halt loss becomes more interesting and important as training progresses:
+1. The model starts solving some problems correctly
+2. Now there's tension: should I halt (am I correct?) or continue (am I still wrong?)
+3. The Q halt loss increases and drives learning about **when to stop**
+
+This creates a curriculum where the model first learns **how** to solve problems (via LM loss), then learns **when** to stop solving them (via Q halt loss). This is similar to how humans learn - first we learn the skill, then we learn when we've done enough.
+
+#### Benefits of Adaptive Halting
+
+This mechanism provides several advantages:
+- **Efficiency**: Spend more computation on harder problems, less on easier ones
+- **Generalization**: Forces the model to understand solution quality, not just memorize
+- **Human-like**: Mirrors human behavior of thinking longer about harder problems
+
+In practice, after full training, easy mazes might halt after 2-3 thinking steps, while difficult mazes use all 16 steps.
