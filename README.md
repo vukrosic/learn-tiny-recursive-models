@@ -20,7 +20,7 @@ In this tutorial we will learn how TRM works and do our own experiments.
 
 ## TRM Architecture Overview
 
-![Tiny Recursive Model Architecture](/images/tiny-recursive-model-architecture.png)
+![Tiny Recursive Model Architecture](/docs/images/tiny-recursive-model-architecture.png)
 *Figure: The Tiny Recursive Model architecture showing the main processing block (4x transformer layers), input combination of question (x), answer (y), and reasoning (z), output processing for loss calculation, and the recursive update mechanism that iteratively refines the reasoning and prediction over up to 16 steps.*
 
 The diagram above illustrates the complete TRM architecture. The model processes three key components:
@@ -209,7 +209,7 @@ for supervision_step in range(16):
 
 ### Step 4: Ablation Studies - What Makes TRM Work?
 
-![Complete Ablation Study](/content/tiny-recursive-model/images/complete_ablation_study.png)
+![Complete Ablation Study](/docs/images/complete_ablation_study.png)
 *Figure: Training loss comparison across four TRM configurations over 10 epochs on maze-solving (30x30, hard). The baseline (blue solid) uses TRM's standard design: 2-layer network, H=3 (middle loop), L=6 (inner loop), with EMA. Ablations test: removing EMA (red dashed), reducing recursion depth (green dash-dot), and using a bigger 4-layer network (magenta dotted).*
 
 To understand what makes TRM effective, we systematically test variations by removing or changing key components. These **ablation studies** reveal which design choices are essential.
