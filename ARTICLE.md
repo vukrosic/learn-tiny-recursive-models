@@ -1,6 +1,4 @@
-Of course. Let's start completely from scratch, defining every term, and we'll use a simpler problem than Sudoku that is easier to visualize: **solving a maze**.
-
-### The Big Picture: What is TRM and Why Does It Matter?
+### Tiny Reasoning Model (TRM) Explained Step by Step
 
 **The Challenge with LLMs:** Large Language Models (LLMs) often struggle with reasoning puzzles like Sudoku or maze-solving. These problems require precise, step-by-step thinking where one error can derail the entire solution. The usual approach of making models bigger is costly and often ineffective.
 
